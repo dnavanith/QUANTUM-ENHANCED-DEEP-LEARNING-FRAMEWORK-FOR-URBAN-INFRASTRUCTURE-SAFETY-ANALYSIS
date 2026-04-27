@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Road Hazard Detection — Quantum vs Classical</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* ── Design Tokens ───────────────────────────────── */
+:root {
+  --bg:        #060a0f;
+  --surface:   #0c1218;
+  --card:      #111820;
+  --border:    #1e2d3d;
+  --glow:      #00c6ff;
+  --glow2:     #7b2fff;
+  --accent-y:  #f7c948;     /* YOLO / classical */
+  --accent-q:  #00c6ff;     /* Quantum */
+  --text:      #cdd6e0;
+  --text-dim:  #4a6070;
+  --font-head: 'Syne', sans-serif;
+  --font-mono: 'Space Mono', monospace;
+  --radius:    8px;
+  --transition: 0.25s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  background-size: 200px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Layout ──────────────────────────────────────── */
+.wrapper { position: relative; z-index: 1; max-width: 1300px; margin: 0 auto; padding: 0 20px 60px; }
+
+/* ── Header ──────────────────────────────────────── */
+header {
+  padding: 36px 0 28px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.header-left h1 {
+  font-family: var(--font-head);
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.header-left h1 span.q  { color: var(--accent-q); }
+.header-left h1 span.cl { color: var(--accent-y); }
+.header-left p { color: var(--text-dim); margin-top: 6px; font-size: 11px; }
+
+.status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+.pill.ok .dot   { background: #38d9a9; box-shadow: 0 0 6px #38d9a9; }
+.pill.warn .dot { background: var(--accent-y); box-shadow: 0 0 6px var(--accent-y); }
+.pill.off .dot  { background: #555; }
+
+/* ── Main grid ───────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+/* ── Sidebar ─────────────────────────────────────── */
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.card-title {
+  font-family: var(--font-head);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent-q);
+  background: rgba(0,198,255,0.04);
+}
+.drop-zone input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.drop-icon { font-size: 28px; margin-bottom: 8px; }
+.drop-text { color: var(--text-dim); font-size: 11px; line-height: 1.6; }
+.drop-text strong { color: var(--accent-q); display: block; margin-bottom: 4px; font-size: 12px; }
+
+/* Preview */
+#preview-wrap {
+  display: none;
+  margin-top: 10px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+#preview-wrap img { width: 100%; display: block; }
+
+/* Sliders */
+.slider-group { margin-bottom: 12px; }
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.slider-label { font-size: 11px; display: flex; align-items: center; gap: 6px; }
+.slider-label .badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-y { background: rgba(247,201,72,0.15); color: var(--accent-y); border: 1px solid rgba(247,201,72,0.3); }
+.badge-q { background: rgba(0,198,255,0.15);  color: var(--accent-q); border: 1px solid rgba(0,198,255,0.3); }
+.slider-val { font-size: 12px; color: var(--text); font-weight: 700; }
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+input[type=range].yolo-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--accent-y); cursor: pointer;
+  box-shadow: 0 0 8px var(--accent-y);
+}
+input[type=range].q-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--accent-q); cursor: pointer;
+  box-shadow: 0 0 8px var(--accent-q);
+}
+
+/* Labels display */
+.label-list { display: flex; flex-direction: column; gap: 5px; }
+.label-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+.label-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.label-idx { color: var(--text-dim); min-width: 18px; }
+.label-name { flex: 1; }
+.label-remap { color: var(--accent-y); font-size: 10px; }
+
+/* Run button */
+#run-btn {
+  width: 100%;
+  padding: 13px;
+  font-family: var(--font-head);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #000;
+  background: linear-gradient(135deg, var(--accent-q) 0%, var(--glow2) 100%);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: var(--transition);
+  letter-spacing: 0.02em;
+  position: relative;
+  overflow: hidden;
+}
+#run-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+#run-btn:active { transform: translateY(0); }
+#run-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+#run-btn .spinner {
+  display: none;
+  width: 16px; height: 16px;
+  border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Results area ────────────────────────────────── */
+.results-area { display: flex; flex-direction: column; gap: 20px; }
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.result-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.result-panel.yolo-panel  { border-top: 2px solid var(--accent-y); }
+.result-panel.quantum-panel { border-top: 2px solid var(--accent-q); }
+
+.panel-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.panel-title {
+  font-family: var(--font-head);
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-title .model-tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+.yolo-tag   { background: rgba(247,201,72,0.15); color: var(--accent-y); }
+.q-tag      { background: rgba(0,198,255,0.15);  color: var(--accent-q); }
+.det-count  { font-size: 11px; color: var(--text-dim); }
+
+.panel-img { position: relative; background: #000; }
+.panel-img img { width: 100%; display: block; }
+.placeholder-img {
+  width: 100%;
+  aspect-ratio: 16/9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  flex-direction: column;
+  gap: 8px;
+  background: repeating-linear-gradient(
+    45deg, var(--surface) 0px, var(--surface) 10px,
+    var(--bg) 10px, var(--bg) 20px
+  );
+}
+.placeholder-img .ph-icon { font-size: 32px; opacity: 0.3; }
+
+.panel-detections {
+  padding: 12px 16px;
+  flex: 1;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.panel-detections::-webkit-scrollbar { width: 4px; }
+.panel-detections::-webkit-scrollbar-track { background: transparent; }
+.panel-detections::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.det-empty { color: var(--text-dim); font-size: 11px; padding: 8px 0; }
+.det-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.det-item:last-child { border-bottom: none; }
+.det-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.det-label  { flex: 1; }
+.det-conf   { font-weight: 700; font-size: 12px; }
+
+/* Confidence bar */
+.conf-bar-wrap { flex: 0 0 60px; background: var(--border); border-radius: 2px; height: 4px; }
+.conf-bar      { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+
+/* Summary table */
+.summary-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.summary-title {
+  font-family: var(--font-head);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+.summary-table { width: 100%; border-collapse: collapse; }
+.summary-table th, .summary-table td { padding: 8px 12px; text-align: left; font-size: 11px; }
+.summary-table th { color: var(--text-dim); border-bottom: 1px solid var(--border); font-weight: 400; letter-spacing: 0.05em; }
+.summary-table td { border-bottom: 1px solid rgba(30,45,61,0.5); }
+.summary-table tr:last-child td { border-bottom: none; }
+.txt-y { color: var(--accent-y); font-weight: 700; }
+.txt-q { color: var(--accent-q); font-weight: 700; }
+
+/* Quantum probs row */
+.qprob-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.qprob-chip {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+/* ── Loading overlay ─────────────────────────────── */
+#loading-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(6,10,15,0.85);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  backdrop-filter: blur(4px);
+}
+#loading-overlay.active { display: flex; }
+.qc-spinner {
+  width: 60px; height: 60px;
+  position: relative;
+}
+.qc-spinner::before, .qc-spinner::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+}
+.qc-spinner::before {
+  inset: 0;
+  border: 2px solid transparent;
+  border-top-color: var(--accent-q);
+  animation: spin 1s linear infinite;
+}
+.qc-spinner::after {
+  inset: 8px;
+  border: 2px solid transparent;
+  border-top-color: var(--accent-y);
+  animation: spin 0.7s linear infinite reverse;
+}
+.loading-text { font-family: var(--font-head); font-size: 0.9rem; color: var(--text); }
+.loading-sub  { font-size: 10px; color: var(--text-dim); }
+
+/* ── Error toast ─────────────────────────────────── */
+#error-toast {
+  display: none;
+  position: fixed;
+  bottom: 24px; right: 24px;
+  background: #2d1010;
+  border: 1px solid #c0392b;
+  color: #e74c3c;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  z-index: 200;
+  max-width: 300px;
+}
+#error-toast.active { display: block; }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .compare-grid { grid-template-columns: 1fr; }
+  header { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="qc-spinner"></div>
+  <div class="loading-text">Running Inference…</div>
+  <div class="loading-sub" id="loading-sub-text">Querying both models</div>
+</div>
+
+<div id="error-toast"></div>
+
+<div class="wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left">
+      <h1>Road Hazard <span class="q">Quantum</span> <span style="color:var(--text-dim);font-weight:400">vs</span> <span class="cl">Classical</span></h1>
+      <p>ResNet18 + VQC (4-qubit) &nbsp;·&nbsp; Classical Model &nbsp;·&nbsp; VIT Vellore</p>
+    </div>
+    <div class="status-pills" id="status-pills">
+      <div class="pill off"><span class="dot"></span> Loading…</div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main-grid">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- Upload -->
+      <div class="card">
+        <div class="card-title">01 — Input Image</div>
+        <div class="drop-zone" id="drop-zone">
+          <input type="file" id="file-input" accept="image/*">
+          <div class="drop-icon">🛣️</div>
+          <div class="drop-text">
+            <strong>Click or drag an image here</strong>
+            JPG / PNG / WEBP — max 16 MB
+          </div>
+        </div>
+        <div id="preview-wrap">
+          <img id="preview-img" src="" alt="Preview">
+        </div>
+      </div>
+
+      <!-- Confidence -->
+      <div class="card">
+        <div class="card-title">02 — Confidence Thresholds</div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <span class="slider-label">
+              <span class="badge badge-y">CLASSICAL</span>
+              Classical Threshold
+            </span>
+            <span class="slider-val" id="yolo-conf-val">0.25</span>
+          </div>
+          <input type="range" class="yolo-slider" id="yolo-conf"
+                 min="0.05" max="0.95" step="0.01" value="0.25">
+        </div>
+
+        <div class="slider-group" style="margin-bottom:0">
+          <div class="slider-header">
+            <span class="slider-label">
+              <span class="badge badge-q">QUANTUM</span>
+              Quantum Threshold
+            </span>
+            <span class="slider-val" id="q-conf-val">0.25</span>
+          </div>
+          <input type="range" class="q-slider" id="q-conf"
+                 min="0.05" max="0.95" step="0.01" value="0.25">
+        </div>
+      </div>
+
+      <!-- Labels -->
+      <div class="card">
+        <div class="card-title">03 — Class Labels</div>
+        <div class="label-list" id="label-list">
+          <!-- populated by JS -->
+        </div>
+
+      </div>
+
+      <!-- Run -->
+      <button id="run-btn" disabled>
+        <span id="btn-text">⚡ Run Detection</span>
+        <div class="spinner" id="btn-spinner"></div>
+      </button>
+
+    </div><!-- /sidebar -->
+
+    <!-- Results -->
+    <div class="results-area">
+
+      <!-- Side-by-side images -->
+      <div class="compare-grid">
+
+        <!-- YOLO panel -->
+        <div class="result-panel yolo-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              Classical Model
+              <span class="model-tag yolo-tag">Classical</span>
+            </div>
+            <span class="det-count" id="yolo-count">— detections</span>
+          </div>
+          <div class="panel-img">
+            <div class="placeholder-img" id="yolo-placeholder">
+              <span class="ph-icon">🔍</span>
+              <span>Detection result will appear here</span>
+            </div>
+            <img id="yolo-result-img" src="" alt="YOLO result" style="display:none;">
+          </div>
+          <div class="panel-detections" id="yolo-dets">
+            <div class="det-empty">Upload an image and click Run Detection.</div>
+          </div>
+        </div>
+
+        <!-- Quantum panel -->
+        <div class="result-panel quantum-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              ResNet18 + VQC
+              <span class="model-tag q-tag">Quantum</span>
+            </div>
+            <span class="det-count" id="q-count">— detections</span>
+          </div>
+          <div class="panel-img">
+            <div class="placeholder-img" id="q-placeholder">
+              <span class="ph-icon">⚛️</span>
+              <span>Detection result will appear here</span>
+            </div>
+            <img id="q-result-img" src="" alt="Quantum result" style="display:none;">
+          </div>
+          <div class="panel-detections" id="q-dets">
+            <div class="det-empty">Upload an image and click Run Detection.</div>
+          </div>
+        </div>
+
+      </div><!-- /compare-grid -->
+
+      <!-- Summary table -->
+      <div class="summary-card" id="summary-card" style="display:none;">
+        <div class="summary-title">Detection Summary</div>
+        <table class="summary-table" id="summary-table"></table>
+      </div>
+
+    </div><!-- /results-area -->
+
+  </div><!-- /main-grid -->
+
+</div><!-- /wrapper -->
+
+<script>
+// ── Config injected from Flask ───────────────────────────────────────
+const CLASS_NAMES  = {{ class_names | tojson }};
+const LABEL_REMAP  = {{ label_remap | tojson }};
+
+const CLASS_COLORS = {
+  "cracks":       "#FF5050",
+  "open_manhole": "#50C878",
+  "pothole":      "#50A0FF",
+  "garbage":      "#FFB432",
+};
+const DEFAULT_COLOR = "#aaa";
+
+function resolveLabel(idx) {
+  if (LABEL_REMAP && LABEL_REMAP[idx] !== undefined) return LABEL_REMAP[idx];
+  return CLASS_NAMES[idx] ?? `class_${idx}`;
+}
+
+function classColor(label) {
+  return CLASS_COLORS[label] || DEFAULT_COLOR;
+}
+
+// ── Status check ──────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch("/status");
+    const d = await r.json();
+    const pills = document.getElementById("status-pills");
+    pills.innerHTML = "";
+
+    const mkPill = (label, ok) => {
+      const cls = ok ? "ok" : "off";
+      return `<div class="pill ${cls}"><span class="dot"></span>${label}</div>`;
+    };
+
+    pills.innerHTML = mkPill("Classical", d.yolo_loaded) + mkPill("Quantum", d.quantum_loaded);
+
+    // Populate label list
+    const ll = document.getElementById("label-list");
+    ll.innerHTML = "";
+    d.classes.forEach((name, i) => {
+      const remapped = LABEL_REMAP[i];
+      const displayName = remapped || name;
+      const color = classColor(displayName);
+      ll.innerHTML += `
+        <div class="label-item">
+          <div class="label-swatch" style="background:${color}"></div>
+          <span class="label-idx">${i}</span>
+          <span class="label-name">${name}</span>
+          ${remapped ? `<span class="label-remap">→ ${remapped}</span>` : ""}
+        </div>`;
+    });
+
+    // Enable run button only if at least YOLO is loaded
+    document.getElementById("run-btn").disabled = !d.yolo_loaded;
+  } catch(e) {
+    document.getElementById("status-pills").innerHTML =
+      `<div class="pill warn"><span class="dot"></span>Server unreachable</div>`;
+  }
+}
+
+// ── Slider display ────────────────────────────────────────────────────
+const yoloSlider = document.getElementById("yolo-conf");
+const qSlider    = document.getElementById("q-conf");
+yoloSlider.addEventListener("input", () => {
+  document.getElementById("yolo-conf-val").textContent = parseFloat(yoloSlider.value).toFixed(2);
+});
+qSlider.addEventListener("input", () => {
+  document.getElementById("q-conf-val").textContent = parseFloat(qSlider.value).toFixed(2);
+});
+
+// ── File upload ───────────────────────────────────────────────────────
+let uploadedFile = null;
+const fileInput  = document.getElementById("file-input");
+const dropZone   = document.getElementById("drop-zone");
+const previewWrap = document.getElementById("preview-wrap");
+const previewImg  = document.getElementById("preview-img");
+const runBtn      = document.getElementById("run-btn");
+
+function handleFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  uploadedFile = file;
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  previewWrap.style.display = "block";
+  const status = document.getElementById("status-pills");
+  // Re-enable run btn (status check gates it on model load)
+  checkStatus();
+}
+
+fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+dropZone.addEventListener("dragover",  (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  handleFile(e.dataTransfer.files[0]);
+});
+
+// ── Run detection ─────────────────────────────────────────────────────
+function setLoading(on) {
+  document.getElementById("loading-overlay").classList.toggle("active", on);
+  document.getElementById("btn-text").style.display    = on ? "none"  : "inline";
+  document.getElementById("btn-spinner").style.display = on ? "block" : "none";
+  runBtn.disabled = on;
+}
+
+function showError(msg) {
+  const t = document.getElementById("error-toast");
+  t.textContent = "⚠ " + msg;
+  t.classList.add("active");
+  setTimeout(() => t.classList.remove("active"), 5000);
+}
+
+function renderDetList(containerEl, dets, modelColor) {
+  if (!dets || dets.length === 0) {
+    containerEl.innerHTML = `<div class="det-empty">No detections above threshold.</div>`;
+    return;
+  }
+  containerEl.innerHTML = dets.map(d => {
+    const color = classColor(d.label);
+    const pct   = Math.round(d.conf * 100);
+    return `
+      <div class="det-item">
+        <div class="det-swatch" style="background:${color}"></div>
+        <span class="det-label">${d.label}</span>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="det-conf" style="color:${color}">${pct}%</span>
+      </div>
+      ${d.class_probs ? `
+      <div class="qprob-row">
+        ${Object.entries(d.class_probs).map(([k,v]) =>
+          `<span class="qprob-chip">${k}: ${(v*100).toFixed(0)}%</span>`
+        ).join("")}
+      </div>` : ""}
+    `;
+  }).join("");
+}
+
+function buildSummary(yoloDets, qDets) {
+  const card = document.getElementById("summary-card");
+  const tbl  = document.getElementById("summary-table");
+  card.style.display = "block";
+
+  const countByLabel = (dets) => {
+    const m = {};
+    dets.forEach(d => { m[d.label] = (m[d.label] || 0) + 1; });
+    return m;
+  };
+  const avgConf = (dets) => {
+    if (!dets.length) return "—";
+    return (dets.reduce((s,d) => s+d.conf, 0) / dets.length * 100).toFixed(1) + "%";
+  };
+
+  const allLabels = [...new Set([...yoloDets, ...qDets].map(d => d.label))].sort();
+
+  let rows = `<thead><tr>
+    <th>Class</th>
+    <th class="txt-y">Classical Count</th>
+    <th class="txt-y">Classical Avg Conf</th>
+    <th class="txt-q">Quantum Count</th>
+    <th class="txt-q">Quantum Avg Conf</th>
+  </tr></thead><tbody>`;
+
+  const yC = countByLabel(yoloDets);
+  const qC = countByLabel(qDets);
+
+  allLabels.forEach(label => {
+    const color = classColor(label);
+    rows += `<tr>
+      <td><span class="label-swatch" style="background:${color};display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;"></span>${label}</td>
+      <td class="txt-y">${yC[label] || 0}</td>
+      <td class="txt-y">${avgConf(yoloDets.filter(d=>d.label===label))}</td>
+      <td class="txt-q">${qC[label] || 0}</td>
+      <td class="txt-q">${avgConf(qDets.filter(d=>d.label===label))}</td>
+    </tr>`;
+  });
+
+  rows += `<tr style="font-weight:700;">
+    <td>Total</td>
+    <td class="txt-y">${yoloDets.length}</td>
+    <td class="txt-y">${avgConf(yoloDets)}</td>
+    <td class="txt-q">${qDets.length}</td>
+    <td class="txt-q">${avgConf(qDets)}</td>
+  </tr></tbody>`;
+
+  tbl.innerHTML = rows;
+}
+
+runBtn.addEventListener("click", async () => {
+  if (!uploadedFile) { showError("Please upload an image first."); return; }
+
+  setLoading(true);
+  document.getElementById("loading-sub-text").textContent = "Running Classical + Quantum inference…";
+
+  try {
+    const fd = new FormData();
+    fd.append("image",       uploadedFile);
+    fd.append("yolo_conf",   yoloSlider.value);
+    fd.append("quantum_conf", qSlider.value);
+
+    const res  = await fetch("/detect", { method: "POST", body: fd });
+    const data = await res.json();
+
+    if (data.error) { showError(data.error); return; }
+
+    // YOLO result
+    const yoloImg = document.getElementById("yolo-result-img");
+    yoloImg.src = "data:image/png;base64," + data.yolo.image;
+    yoloImg.style.display = "block";
+    document.getElementById("yolo-placeholder").style.display = "none";
+    document.getElementById("yolo-count").textContent = `${data.yolo.count} detection${data.yolo.count !== 1 ? "s" : ""}`;
+    renderDetList(document.getElementById("yolo-dets"), data.yolo.detections, "yolo");
+
+    // Quantum result
+    const qImg = document.getElementById("q-result-img");
+    qImg.src = "data:image/png;base64," + data.quantum.image;
+    qImg.style.display = "block";
+    document.getElementById("q-placeholder").style.display = "none";
+    document.getElementById("q-count").textContent = `${data.quantum.count} detection${data.quantum.count !== 1 ? "s" : ""}`;
+    renderDetList(document.getElementById("q-dets"), data.quantum.detections, "quantum");
+
+    buildSummary(data.yolo.detections, data.quantum.detections);
+
+  } catch(e) {
+    showError("Server error: " + e.message);
+  } finally {
+    setLoading(false);
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────
+checkStatus();
+</script>
+</body>
+</html>
