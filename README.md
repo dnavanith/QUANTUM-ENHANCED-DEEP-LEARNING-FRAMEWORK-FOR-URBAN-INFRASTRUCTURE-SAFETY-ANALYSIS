@@ -186,3 +186,20 @@ Implemented using:
 - PennyLane `default.qubit` simulator
 
 ---
+## Future Enhancements
+
+- Deployment on real quantum hardware
+
+- Noise-resilient circuit design
+
+- Real-time smart city integration
+
+- Severity-based hazard classification
+
+- Larger and more diverse datasets
+
+- Explainable AI integration
+
+- Quantum kernel methods
+
+---
